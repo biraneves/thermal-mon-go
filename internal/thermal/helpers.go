@@ -6,11 +6,17 @@ import (
 	"os"
 	"strconv"
 	"strings"
-
-	"github.com/biraneves/thermal-mon-go/internal/colors"
 )
 
-// readCPUTemperature reads the system thermal file and returns degrees Celsius.
+type Status string
+
+const (
+	StatusOK       Status = "OK"
+	StatusWarning  Status = "WARNING"
+	StatusCritical Status = "CRITICAL"
+)
+
+// ReadCPUTemperature reads the system thermal file and returns degrees Celsius.
 func ReadCPUTemperature(filePath string) (float64, error) {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
@@ -27,23 +33,21 @@ func ReadCPUTemperature(filePath string) (float64, error) {
 	return milliDeg / 1000.0, nil
 }
 
-// checkThresholds evaluates the temperature and logs warnings.
-func CheckThresholds(temp, warnThreshold, critThreshold float64) (string, string, error) {
+// ValidateThresholds validates temperature thresholds once at startup.
+func ValidateThresholds(warnThreshold, critThreshold float64) error {
 	if warnThreshold >= critThreshold {
-		return "", "", errors.New("expected warning threshold to be less than critical threshold")
+		return errors.New("warning threshold must be lower than critical threshold")
 	}
+	return nil
+}
 
-	currentStatus := "OK"
-	colorCode := colors.Green
-
-	if temp >= warnThreshold {
-		currentStatus = "WARNING"
-		colorCode = colors.Yellow
-	}
+// CheckThresholds evaluates the current status based on thresholds.
+func CheckThresholds(temp, warnThreshold, critThreshold float64) Status {
 	if temp >= critThreshold {
-		currentStatus = "CRITICAL"
-		colorCode = colors.Red
+		return StatusCritical
 	}
-
-	return currentStatus, colorCode, nil
+	if temp >= warnThreshold {
+		return StatusWarning
+	}
+	return StatusOK
 }
