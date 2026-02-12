@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"os"
 	"time"
@@ -11,17 +12,34 @@ import (
 
 // Thermal thresholds in Celsius.
 const (
-	WarningThreshold  = 75.0
-	CriticalThreshold = 85.0
-	CheckInterval     = 30 * time.Second
-	ThermalZonePath   = "/sys/class/hwmon/hwmon1/temp1_input"
+	ThermalZonePath = "/sys/class/hwmon/hwmon1/temp1_input"
 )
 
 func main() {
-	fmt.Printf("Starting Thermal Monitor at %s\n", time.Now().Format(time.RFC3339))
-	fmt.Printf("Thresholds: Warning > %.1f°C, Critical > %.1f°C\n", WarningThreshold, CriticalThreshold)
+	var (
+		warningThreshold  float64
+		criticalThreshold float64
+		checkingInterval  time.Duration
+	)
 
-	ticker := time.NewTicker(CheckInterval)
+	flag.Float64Var(&warningThreshold, "w", 75.0, "Warning temperature threshold of operation")
+	flag.Float64Var(&criticalThreshold, "c", 85.0, "Critical temperature threshold of operation")
+	flag.DurationVar(&checkingInterval, "i", 30*time.Second, "Check interval")
+	flag.Parse()
+
+	if len(os.Args) == 1 {
+		fmt.Println("You can customize the parameters:")
+		fmt.Println("  -w (warning threshold - float)")
+		fmt.Println("  -c (critical threshold - float)")
+		fmt.Println("  -i (interval - valid duration; e.g.: 20s)")
+		fmt.Println("")
+	}
+
+	fmt.Printf("Starting Thermal Monitor at %s\n", time.Now().Format(time.RFC3339))
+	fmt.Printf("Thresholds: Warning >= %.1f°C, Critical >= %.1f°C\n", warningThreshold, criticalThreshold)
+	fmt.Printf("Checking every %v\n\n", checkingInterval)
+
+	ticker := time.NewTicker(checkingInterval)
 	defer ticker.Stop()
 
 	for range ticker.C {
@@ -30,7 +48,7 @@ func main() {
 			fmt.Fprintf(os.Stderr, "%sError reading temperature: %v%s\n", colors.White, err, colors.Reset)
 			continue
 		}
-		currentStatus, colorCode, err := thermal.CheckThresholds(temp, WarningThreshold, CriticalThreshold)
+		currentStatus, colorCode, err := thermal.CheckThresholds(temp, warningThreshold, criticalThreshold)
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "%sInvalid thresholds: %v%s\n", colors.White, err, colors.Reset)
 			continue
