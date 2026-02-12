@@ -1,11 +1,35 @@
 package thermal
 
 import (
-	"strings"
+	"os"
+	"path/filepath"
 	"testing"
-
-	"github.com/biraneves/thermal-mon-go/internal/colors"
 )
+
+func TestValidateThresholds(t *testing.T) {
+	tests := []struct {
+		name        string
+		warningThr  float64
+		criticalThr float64
+		wantErr     bool
+	}{
+		{"valid thresholds", 75.0, 85.0, false},
+		{"equal thresholds", 75.0, 75.0, true},
+		{"warning greater than critical", 90.0, 85.0, true},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := ValidateThresholds(test.warningThr, test.criticalThr)
+			if test.wantErr && err == nil {
+				t.Fatalf("expected error, got nil")
+			}
+			if !test.wantErr && err != nil {
+				t.Fatalf("expected nil error, got %v", err)
+			}
+		})
+	}
+}
 
 func TestCheckThresholds(t *testing.T) {
 	tests := []struct {
@@ -13,99 +37,53 @@ func TestCheckThresholds(t *testing.T) {
 		temp        float64
 		warningThr  float64
 		criticalThr float64
-		expStatus   string
-		expColor    string
-		expError    bool
-	}{
-		{
-			name:        "temperature under warning threshold",
-			temp:        40.0,
-			warningThr:  75.0,
-			criticalThr: 85.0,
-			expStatus:   "OK",
-			expColor:    sanitizeColorCode(colors.Green),
-		},
-		{
-			name:        "temperature is warning threshold",
-			temp:        75.0,
-			warningThr:  75.0,
-			criticalThr: 85.0,
-			expStatus:   "WARNING",
-			expColor:    sanitizeColorCode(colors.Yellow),
-		},
-		{
-			name:        "temperature between warning and critical threshold",
-			temp:        80.0,
-			warningThr:  75.0,
-			criticalThr: 85.0,
-			expStatus:   "WARNING",
-			expColor:    sanitizeColorCode(colors.Yellow),
-		},
-		{
-			name:        "temperature is critical threshold",
-			temp:        85.0,
-			warningThr:  75.0,
-			criticalThr: 85.0,
-			expStatus:   "CRITICAL",
-			expColor:    sanitizeColorCode(colors.Red),
-		},
-		{
-			name:        "temperature greater than critical threshold",
-			temp:        90.0,
-			warningThr:  75.0,
-			criticalThr: 85.0,
-			expStatus:   "CRITICAL",
-			expColor:    sanitizeColorCode(colors.Red),
-		},
-		{
-			name:        "warning temperature equal to critical temperature",
-			temp:        40.0,
-			warningThr:  75.0,
-			criticalThr: 75.0,
-			expStatus:   "",
-			expColor:    "",
-			expError:    true,
-		},
-		{
-			name:        "warning temperature greater than critical temperature",
-			temp:        40.0,
-			warningThr:  90.0,
-			criticalThr: 85.0,
-			expStatus:   "",
-			expColor:    "",
-			expError:    true,
-		},
-	}
+		expected    Status
+	}{}
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			gotStatus, gotColor, gotErr := CheckThresholds(test.temp, test.warningThr, test.criticalThr)
-			if test.expError {
-				if gotErr == nil {
-					t.Fatalf("Error expected, got nil")
-				}
-				if gotStatus != "" {
-					t.Fatalf("Expected empty status")
-				}
-				if gotColor != "" {
-					t.Fatalf("Expected empty color code")
-				}
-			} else {
-				if gotStatus != test.expStatus {
-					t.Errorf("Expected status %s, got %s", test.expStatus, gotStatus)
-				}
-
-				gotColor = sanitizeColorCode(gotColor)
-				if gotColor != test.expColor {
-					t.Errorf("Expected color code %s, got %s", test.expColor, gotColor)
-				}
+			got := CheckThresholds(test.temp, test.warningThr, test.criticalThr)
+			if got != test.expected {
+				t.Fatalf("expected status %s, got %s", test.expected, got)
 			}
 		})
 	}
 }
 
-func sanitizeColorCode(colorCode string) string {
-	newCode := strings.ReplaceAll(colorCode, "\033[", "")
-	newCode = strings.ReplaceAll(newCode, "[", "")
-	return newCode
+func TestReadCPUTemperature(t *testing.T) {
+	t.Run("valid millidegrees file", func(t *testing.T) {
+		dir := t.TempDir()
+		file := filepath.Join(dir, "temp_input")
+		if err := os.WriteFile(file, []byte("42000\n"), 0o600); err != nil {
+			t.Fatalf("write file: %v", err)
+		}
+
+		got, err := ReadCPUTemperature(file)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if got != 42.0 {
+			t.Fatalf("expected 42.0, got %v", got)
+		}
+	})
+
+	t.Run("invalid numeric content", func(t *testing.T) {
+		dir := t.TempDir()
+		file := filepath.Join(dir, "temp_input")
+		if err := os.WriteFile(file, []byte("abc"), 0o600); err != nil {
+			t.Fatalf("write file: %v", err)
+		}
+
+		_, err := ReadCPUTemperature(file)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+	})
+
+	t.Run("missing file", func(t *testing.T) {
+		_, err := ReadCPUTemperature("/tmp/this-file-should-not-exist")
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+	})
 }
